@@ -1,6 +1,28 @@
-import { PrismaClient } from "@prisma/client";
+import { Order, PrismaClient } from "@prisma/client";
+import { JsonObject } from "@prisma/client/runtime/library";
+import { createPublicClient, createWalletClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { base } from "viem/chains";
+import { fillContractOrder } from "./utils/1inch";
+import { LimitOrderV4Struct } from "@1inch/limit-order-sdk";
 
 const prisma = new PrismaClient();
+
+const TAKER_PRIVATE_KEY =
+  (process.env.TAKER_PRIVATE_KEY as `0x${string}`) || "0xYOUR_PRIVATE_KEY";
+
+const takerWallet = privateKeyToAccount(TAKER_PRIVATE_KEY);
+
+const takerWalletClient = createWalletClient({
+  account: takerWallet,
+  chain: base,
+  transport: http(),
+});
+
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http(),
+});
 
 // Demo script to showcase the functionality
 // 1. This script will have a hardcoded or even an argument to fill a certain order with an order ID
@@ -41,8 +63,7 @@ async function runDemo() {
     for (const order of openOrders) {
       console.log(`\n🔨 Processing order ${order.id}...`);
 
-      // TODO: Add your on-chain order filling logic here
-      const orderFillResult = await simulateOrderFill(order);
+      const orderFillResult = await fillOrder(order);
 
       if (orderFillResult.success) {
         // Mark order as completed in database
@@ -53,13 +74,13 @@ async function runDemo() {
             data: {
               ...(order.data as object),
               filledAt: new Date().toISOString(),
-              txHash: orderFillResult.txHash,
-              fillPrice: orderFillResult.fillPrice,
+              txHash: orderFillResult.transactionHash,
             },
           },
         });
         console.log(`✅ Order ${order.id} filled successfully`);
       } else {
+        console.error(`❌ Failed to fill order ${order.id}`);
         console.log(
           `❌ Order ${order.id} failed to fill:`,
           orderFillResult.error
@@ -96,7 +117,7 @@ async function runDemo() {
 }
 
 // Helper function to simulate on-chain order filling
-async function simulateOrderFill(order: any) {
+async function fillOrder(order: Order) {
   console.log("🔨 Simulating on-chain order fill...");
 
   // TODO: Replace this with actual blockchain interaction
@@ -109,11 +130,12 @@ async function simulateOrderFill(order: any) {
   try {
     // Simulate wallet connection
     console.log("� Connecting to wallet...");
-    // const wallet = await connectWallet();
+    console.log(`🔑 Using wallet: ${takerWallet.address}`);
+
+    const orderData = order.data as JsonObject;
 
     // Simulate building transaction
     console.log("🏗️ Building transaction...");
-    const txData = await buildOrderFillTransaction(order);
 
     // Simulate signing transaction
     console.log("✍️ Signing transaction...");
@@ -123,23 +145,27 @@ async function simulateOrderFill(order: any) {
     console.log("📡 Submitting to blockchain...");
     // const txHash = await submitTransaction(signedTx);
 
+    const txHash = await fillContractOrder({
+      takerWallet: takerWalletClient,
+      order: orderData.order as LimitOrderV4Struct,
+      signature: orderData.signature as `0x${string}`,
+    });
+
     // Simulate waiting for confirmation
     console.log("⏳ Waiting for confirmation...");
     // await waitForConfirmation(txHash);
 
-    // Simulate successful fill
-    const mockTxHash = "0x" + Math.random().toString(16).substr(2, 64);
-    const mockFillPrice =
-      parseFloat(order.data.price || "0") * (0.99 + Math.random() * 0.02); // +/- 1%
+    const tx = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+    });
 
+    tx.transactionHash;
+    // Simulate successful fill
     console.log("✅ Order filled on-chain");
 
     return {
       success: true,
-      txHash: mockTxHash,
-      fillPrice: mockFillPrice.toString(),
-      gasUsed: "21000",
-      blockNumber: Math.floor(Math.random() * 1000000) + 18000000,
+      transactionHash: tx.transactionHash,
     };
   } catch (error) {
     console.error("❌ Order fill failed:", error);
@@ -149,45 +175,6 @@ async function simulateOrderFill(order: any) {
     };
   }
 }
-
-// Helper function to build order fill transaction
-async function buildOrderFillTransaction(order: any) {
-  console.log("🏗️ Building order fill transaction for order:", order.id);
-
-  // TODO: Implement actual transaction building logic
-  // This would typically involve:
-  // 1. Getting the order details
-  // 2. Calculating gas requirements
-  // 3. Building the contract call data
-  // 4. Setting gas price and limits
-
-  return {
-    to: "0xDEX_CONTRACT_ADDRESS", // Replace with actual DEX contract
-    data: "0x" + "fillOrder".padEnd(64, "0"), // Placeholder function call
-    value: "0",
-    gasLimit: "200000",
-    gasPrice: "20000000000", // 20 gwei
-    nonce: Math.floor(Math.random() * 1000000),
-  };
-}
-
-// TODO: Implement these wallet functions
-/*
-async function connectWallet() {
-  // Connect to MetaMask, WalletConnect, or other wallet
-  // Return wallet instance
-}
-
-async function submitTransaction(signedTx: any) {
-  // Submit signed transaction to blockchain
-  // Return transaction hash
-}
-
-async function waitForConfirmation(txHash: string) {
-  // Wait for transaction to be confirmed
-  // Return receipt
-}
-*/
 
 // Run if this file is executed directly
 if (import.meta.main) {
