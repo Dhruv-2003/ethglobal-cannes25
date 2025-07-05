@@ -76,15 +76,11 @@ export const createNewOrder = async ({
     order,
     signature: signature as `0x${string}`,
   };
-
-  //   const builtOrder = order.build();
-  //   return builtOrder;
 };
 
 export interface FillContractOrderParams {
   takerWallet: WalletClient;
-  order: LimitOrderWithFee;
-  makerTraits: MakerTraits;
+  order: LimitOrderV4Struct;
   signature: `0x${string}`;
   chainId?: number;
 }
@@ -108,10 +104,10 @@ export const fillContractOrder = async ({
   });
 
   const data = LimitOrderContract.getFillContractOrderCalldata(
-    order.build(),
+    order,
     signature,
     takerTraits,
-    order.makingAmount
+    BigInt(order.makingAmount)
   );
 
   const tx = await takerWallet.sendTransaction({
