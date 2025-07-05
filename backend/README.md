@@ -49,22 +49,19 @@ Server will start on http://localhost:3000
 
 ## API Endpoints
 
-### Users
+### Orders
 
-- `GET /users` - Get all users
-- `POST /users` - Create user
-- `GET /users/:id` - Get user by ID
-
-### Tasks
-
-- `GET /tasks` - Get all tasks
-- `POST /tasks` - Create task
-- `PATCH /tasks/:id` - Update task
-- `DELETE /tasks/:id` - Delete task
+- `GET /orders` - Get all orders
+- `GET /orders/:id` - Get order by ID
+- `POST /orders` - Create new order
+- `PATCH /orders/:id` - Update order
+- `DELETE /orders/:id` - Delete order
+- `GET /orders/user/:address` - Get orders by user address
+- `PATCH /orders/:id/complete` - Mark order as completed
 
 ### Custom
 
-- `POST /process` - Custom processing endpoint
+- `POST /process` - Custom order processing endpoint
 
 ## Project Structure
 
@@ -75,23 +72,27 @@ Server will start on http://localhost:3000
 
 ## Example Usage
 
-1. **Create a user:**
+1. **Create an order:**
 
 ```bash
-curl -X POST http://localhost:3000/users \
+curl -X POST http://localhost:3000/orders \
   -H "Content-Type: application/json" \
-  -d '{"email": "test@example.com", "name": "Test User"}'
+  -d '{"userAddress": "0x1234...abcd", "makerToken": "0xToken123", "data": {"amount": "100", "type": "swap"}}'
 ```
 
-2. **Create a task:**
+2. **Get orders for a user:**
 
 ```bash
-curl -X POST http://localhost:3000/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"title": "My Task", "description": "Task description", "userId": "USER_ID"}'
+curl http://localhost:3000/orders/user/0x1234...abcd
 ```
 
-3. **Run demo script:**
+3. **Complete an order:**
+
+```bash
+curl -X PATCH http://localhost:3000/orders/ORDER_ID/complete
+```
+
+4. **Run demo script:**
 
 ```bash
 bun run demo
@@ -105,7 +106,6 @@ bun run engine
 
 ## Database Schema
 
-- **User**: id, email, name, createdAt, updatedAt
-- **Task**: id, title, description, completed, createdAt, updatedAt, userId
+- **Order**: id, userAddress, makerToken, data (JSON), completed, createdAt, updatedAt
 
 Simple and ready for hackathon development! 🚀

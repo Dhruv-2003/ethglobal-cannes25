@@ -19,110 +19,111 @@ app.get("/", (c: Context) => {
   return c.json({ message: "Cannes 25 Backend API is running!" });
 });
 
-// User endpoints
-app.get("/users", async (c: Context) => {
+// Order endpoints
+app.get("/orders", async (c: Context) => {
   try {
-    const users = await prisma.user.findMany({
-      include: { tasks: true },
+    const orders = await prisma.order.findMany({
+      orderBy: { createdAt: "desc" },
     });
-    return c.json(users);
+    return c.json(orders);
   } catch (error) {
-    return c.json({ error: "Failed to fetch users" }, 500);
+    return c.json({ error: "Failed to fetch orders" }, 500);
   }
 });
 
-app.post("/users", async (c: Context) => {
-  try {
-    const { email, name } = await c.req.json();
-
-    if (!email) {
-      return c.json({ error: "Email is required" }, 400);
-    }
-
-    const user = await prisma.user.create({
-      data: { email, name },
-    });
-    return c.json(user, 201);
-  } catch (error) {
-    return c.json({ error: "Failed to create user" }, 500);
-  }
-});
-
-app.get("/users/:id", async (c: Context) => {
+app.get("/orders/:id", async (c: Context) => {
   try {
     const id = c.req.param("id");
-    const user = await prisma.user.findUnique({
+    const order = await prisma.order.findUnique({
       where: { id },
-      include: { tasks: true },
     });
 
-    if (!user) {
-      return c.json({ error: "User not found" }, 404);
+    if (!order) {
+      return c.json({ error: "Order not found" }, 404);
     }
 
-    return c.json(user);
+    return c.json(order);
   } catch (error) {
-    return c.json({ error: "Failed to fetch user" }, 500);
+    return c.json({ error: "Failed to fetch order" }, 500);
   }
 });
 
-// Task endpoints
-app.get("/tasks", async (c: Context) => {
+app.post("/orders", async (c: Context) => {
   try {
-    const tasks = await prisma.task.findMany({
-      include: { user: true },
-    });
-    return c.json(tasks);
-  } catch (error) {
-    return c.json({ error: "Failed to fetch tasks" }, 500);
-  }
-});
+    const { userAddress, makerToken, data } = await c.req.json();
 
-app.post("/tasks", async (c: Context) => {
-  try {
-    const { title, description, userId } = await c.req.json();
-
-    if (!title || !userId) {
-      return c.json({ error: "Title and userId are required" }, 400);
+    if (!userAddress || !makerToken) {
+      return c.json({ error: "userAddress and makerToken are required" }, 400);
     }
 
-    const task = await prisma.task.create({
-      data: { title, description, userId },
-      include: { user: true },
+    const order = await prisma.order.create({
+      data: {
+        userAddress,
+        makerToken,
+        data: data || {},
+      },
     });
-    return c.json(task, 201);
+    return c.json(order, 201);
   } catch (error) {
-    return c.json({ error: "Failed to create task" }, 500);
+    return c.json({ error: "Failed to create order" }, 500);
   }
 });
 
-app.patch("/tasks/:id", async (c: Context) => {
+app.patch("/orders/:id", async (c: Context) => {
   try {
     const id = c.req.param("id");
-    const { title, description, completed } = await c.req.json();
+    const { userAddress, makerToken, data, completed } = await c.req.json();
 
-    const task = await prisma.task.update({
+    const order = await prisma.order.update({
       where: { id },
-      data: { title, description, completed },
-      include: { user: true },
+      data: { userAddress, makerToken, data, completed },
     });
-    return c.json(task);
+    return c.json(order);
   } catch (error) {
-    return c.json({ error: "Failed to update task" }, 500);
+    return c.json({ error: "Failed to update order" }, 500);
   }
 });
 
-app.delete("/tasks/:id", async (c: Context) => {
+app.delete("/orders/:id", async (c: Context) => {
   try {
     const id = c.req.param("id");
-    await prisma.task.delete({ where: { id } });
-    return c.json({ message: "Task deleted successfully" });
+    await prisma.order.delete({ where: { id } });
+    return c.json({ message: "Order deleted successfully" });
   } catch (error) {
-    return c.json({ error: "Failed to delete task" }, 500);
+    return c.json({ error: "Failed to delete order" }, 500);
   }
 });
 
-// Custom endpoint for your hackathon logic
+// Get orders by user address
+app.get("/orders/user/:address", async (c: Context) => {
+  try {
+    const address = c.req.param("address");
+    const orders = await prisma.order.findMany({
+      where: { userAddress: address },
+      orderBy: { createdAt: "desc" },
+    });
+    return c.json(orders);
+  } catch (error) {
+    return c.json({ error: "Failed to fetch user orders" }, 500);
+  }
+});
+
+// Mark order as completed
+app.patch("/orders/:id/complete", async (c: Context) => {
+  try {
+    const id = c.req.param("id");
+    const order = await prisma.order.update({
+      where: { id },
+      data: { completed: true },
+    });
+    return c.json(order);
+  } catch (error) {
+    return c.json({ error: "Failed to complete order" }, 500);
+  }
+});
+
+// Custom endpoint for order processing
+// NOTE: Might not be needed
 app.post("/process", async (c: Context) => {
   try {
     const { action, data } = await c.req.json();
@@ -130,16 +131,20 @@ app.post("/process", async (c: Context) => {
     // Add your custom processing logic here
     console.log("Processing action:", action, "with data:", data);
 
-    // Example: Create a task based on processing result
-    if (action === "create_task_from_process") {
-      const task = await prisma.task.create({
+    // Example: Create an order based on processing result
+    if (action === "create_order_from_process") {
+      const order = await prisma.order.create({
         data: {
-          title: `Processed: ${data.title}`,
-          description: `Auto-generated from process: ${data.description}`,
-          userId: data.userId,
+          userAddress: data.userAddress,
+          makerToken: data.makerToken,
+          data: {
+            processed: true,
+            originalData: data,
+            processedAt: new Date().toISOString(),
+          },
         },
       });
-      return c.json({ success: true, task });
+      return c.json({ success: true, order });
     }
 
     return c.json({
