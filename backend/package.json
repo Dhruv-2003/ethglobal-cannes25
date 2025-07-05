@@ -1,0 +1,25 @@
+{
+  "name": "cannes25-backend",
+  "version": "1.0.0",
+  "description": "Simple TypeScript backend for Cannes 25 hackathon",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "bun run --watch src/server.ts",
+    "build": "bun build src/server.ts --outdir=dist --target=bun",
+    "start": "bun run dist/server.js",
+    "db:generate": "bunx prisma generate",
+    "db:push": "bunx prisma db push",
+    "db:studio": "bunx prisma studio",
+    "engine": "bun run src/engine.ts",
+    "demo": "bun run src/demo.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.7.1",
+    "hono": "^3.12.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.0.0",
+    "prisma": "^5.7.1",
+    "typescript": "^5.3.3"
+  }
+}
