@@ -1,12 +1,16 @@
 import { Hono } from "hono";
 import { PrismaClient } from "@prisma/client";
 import type { Context } from "hono";
+import { Engine } from "./engine";
 
 // Initialize Prisma Client
 const prisma = new PrismaClient();
 
 // Initialize Hono app
 const app = new Hono();
+
+// Initialize Engine
+const engine = new Engine();
 
 // Middleware for JSON parsing (built into Hono)
 app.use("*", async (c: Context, next) => {
@@ -154,6 +158,153 @@ app.post("/process", async (c: Context) => {
     });
   } catch (error) {
     return c.json({ error: "Processing failed" }, 500);
+  }
+});
+
+// Zen Mode endpoints
+app.post("/zen-mode/activate", async (c: Context) => {
+  try {
+    const { userAddress, preferences } = await c.req.json();
+
+    if (!userAddress || !preferences) {
+      return c.json({ error: "userAddress and preferences are required" }, 400);
+    }
+
+    // Check if user already has zen mode active
+    const existingZenUser = await prisma.zenModeUser.findUnique({
+      where: { userAddress },
+    });
+
+    let zenUser;
+    if (existingZenUser) {
+      // Update existing zen mode user
+      zenUser = await prisma.zenModeUser.update({
+        where: { userAddress },
+        data: {
+          preferences,
+          isActive: true,
+          updatedAt: new Date(),
+        },
+      });
+    } else {
+      // Create new zen mode user
+      zenUser = await prisma.zenModeUser.create({
+        data: {
+          userAddress,
+          preferences,
+          isActive: true,
+        },
+      });
+    }
+
+    // Initialize engine monitoring if this is the first active user
+    await engine.initializeMonitoring();
+
+    return c.json(
+      {
+        success: true,
+        message: "Zen mode activated successfully",
+        zenUser,
+      },
+      201
+    );
+  } catch (error) {
+    return c.json({ error: "Failed to activate zen mode" }, 500);
+  }
+});
+
+app.post("/zen-mode/deactivate", async (c: Context) => {
+  try {
+    const { userAddress } = await c.req.json();
+
+    if (!userAddress) {
+      return c.json({ error: "userAddress is required" }, 400);
+    }
+
+    const zenUser = await prisma.zenModeUser.findUnique({
+      where: { userAddress },
+    });
+
+    if (!zenUser) {
+      return c.json({ error: "User not found in zen mode" }, 404);
+    }
+
+    const updatedZenUser = await prisma.zenModeUser.update({
+      where: { userAddress },
+      data: { isActive: false },
+    });
+
+    // Check if engine monitoring should stop
+    await engine.checkAndStopMonitoring();
+
+    return c.json({
+      success: true,
+      message: "Zen mode deactivated successfully",
+      zenUser: updatedZenUser,
+    });
+  } catch (error) {
+    return c.json({ error: "Failed to deactivate zen mode" }, 500);
+  }
+});
+
+app.get("/zen-mode/users", async (c: Context) => {
+  try {
+    const activeZenUsers = await prisma.zenModeUser.findMany({
+      where: { isActive: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return c.json({
+      success: true,
+      count: activeZenUsers.length,
+      users: activeZenUsers,
+    });
+  } catch (error) {
+    return c.json({ error: "Failed to fetch zen mode users" }, 500);
+  }
+});
+
+app.get("/zen-mode/users/:address", async (c: Context) => {
+  try {
+    const address = c.req.param("address");
+    const zenUser = await prisma.zenModeUser.findUnique({
+      where: { userAddress: address },
+    });
+
+    if (!zenUser) {
+      return c.json({ error: "User not found in zen mode" }, 404);
+    }
+
+    return c.json({
+      success: true,
+      zenUser,
+    });
+  } catch (error) {
+    return c.json({ error: "Failed to fetch zen mode user" }, 500);
+  }
+});
+
+app.patch("/zen-mode/users/:address/preferences", async (c: Context) => {
+  try {
+    const address = c.req.param("address");
+    const { preferences } = await c.req.json();
+
+    if (!preferences) {
+      return c.json({ error: "preferences are required" }, 400);
+    }
+
+    const zenUser = await prisma.zenModeUser.update({
+      where: { userAddress: address },
+      data: { preferences },
+    });
+
+    return c.json({
+      success: true,
+      message: "Preferences updated successfully",
+      zenUser,
+    });
+  } catch (error) {
+    return c.json({ error: "Failed to update preferences" }, 500);
   }
 });
 

@@ -1,45 +1,68 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, ZenModeUser, Order } from "@prisma/client";
+import { createPublicClient, erc20Abi, http, PublicClient } from "viem";
+import { base } from "viem/chains";
+import { createNewOrder, CreateNewOrderResponse } from "./utils/1inch";
+import { privateKeyToAccount } from "viem/accounts";
 
 const prisma = new PrismaClient();
+
+// Interfaces for better type safety
+interface MarketData {
+  prices: Record<string, number>;
+  volume: number;
+  timestamp: number;
+}
+
+interface UserBalance {
+  tokenBalance: bigint;
+  tokenDecimals: number;
+}
+
+interface OrderDetails {
+  makerToken: string;
+  takerToken: string;
+  amount: string;
+  price: number;
+  data: {
+    strategy: string;
+    calculatedAt: string;
+    marketPrice: number;
+    userPreferences: any;
+  };
+}
+
+const enginePrivateKey =
+  (process.env.ENGINE_PRIVATE_KEY as `0x${string}`) || "";
+const engineWallet = privateKeyToAccount(enginePrivateKey);
+
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http(),
+});
 
 // Engine class for processing actions
 // 1. Receives a request to activate zen mode for a user
 // 2. Regularly looks at the account and market and creates new order for the user
 // 3. Continues to monitor the market and updates the order if required (Optional)
 class Engine {
-  private zenModeUsers: Map<string, any> = new Map();
   private monitoringInterval: NodeJS.Timeout | null = null;
 
-  // Step 1: Activate zen mode for a user
-  async activateZenMode(userAddress: string, preferences: any) {
-    console.log("🧘 Activating zen mode for user:", userAddress);
-
+  // Get active zen mode users from database
+  async getActiveZenUsers(): Promise<ZenModeUser[]> {
     try {
-      // Store user preferences for zen mode
-      this.zenModeUsers.set(userAddress, {
-        userAddress,
-        preferences,
-        activatedAt: new Date().toISOString(),
-        lastOrderCheck: null,
-        isActive: true,
+      const activeUsers = await prisma.zenModeUser.findMany({
+        where: { isActive: true },
       });
-
-      console.log("✅ Zen mode activated for:", userAddress);
-
-      // Start monitoring if not already running
-      if (!this.monitoringInterval) {
-        this.startMarketMonitoring();
-      }
-
-      return { success: true, userAddress, zenModeActive: true };
+      console.log(`📊 Found ${activeUsers.length} active zen mode users`);
+      return activeUsers;
     } catch (error) {
-      console.error("❌ Failed to activate zen mode:", error);
-      throw error;
+      console.error("❌ Failed to fetch active zen users:", error);
+      return [];
     }
   }
 
-  // Step 2: Monitor market and create orders
-  private async startMarketMonitoring() {
+  // Start monitoring (now uses database)
+  async startMarketMonitoring() {
     console.log("👀 Starting market monitoring...");
 
     this.monitoringInterval = setInterval(async () => {
@@ -54,35 +77,81 @@ class Engine {
   private async checkAndCreateOrders() {
     console.log("🔍 Checking market conditions for zen mode users...");
 
-    for (const [userAddress, userData] of this.zenModeUsers) {
-      if (!userData.isActive) continue;
+    const activeZenUsers = await this.getActiveZenUsers();
 
+    if (activeZenUsers.length === 0) {
+      console.log("No active zen mode users found");
+      return;
+    }
+
+    for (const zenUser of activeZenUsers) {
       try {
-        // TODO: Add your market analysis logic here
-        const marketData = await this.getMarketData();
-        const userBalance = await this.getUserBalance(userAddress);
+        if (!zenUser.preferences) {
+          continue; // Skip if no preferences set
+        }
+
+        // @ts-ignore
+        const token = zenUser.preferences.token as `0x${string}`;
+
+        // // TODO: Add your market analysis logic here
+        // const marketData = await this.getMarketData();
+        // Example data
+        const marketData: MarketData = {
+          prices: { ETH: 2000, USDC: 1 },
+          volume: 1000000,
+          timestamp: Date.now(),
+        };
+
+        const userBalance = await this.getUserBalance(
+          zenUser.userAddress as `0x${string}`,
+          token
+        );
 
         // Check if order should be created based on conditions
         const shouldCreateOrder = await this.shouldCreateOrder(
-          userData,
+          zenUser,
           marketData,
           userBalance
         );
 
         if (shouldCreateOrder) {
-          const orderDetails = await this.calculateOptimalOrder(
-            userData,
+          const order = await this.calculateOptimalOrder(
+            zenUser,
             marketData,
             userBalance
           );
-          await this.createOrderForUser(userAddress, orderDetails);
+          await this.createOrderForUser(zenUser.userAddress, order);
 
-          // Update last check time
-          userData.lastOrderCheck = new Date().toISOString();
+          // Update last check time in database
+          await prisma.zenModeUser.update({
+            where: { id: zenUser.id },
+            data: { lastOrderCheck: new Date() },
+          });
         }
       } catch (error) {
-        console.error(`❌ Error processing user ${userAddress}:`, error);
+        console.error(
+          `❌ Error processing user ${zenUser.userAddress}:`,
+          error
+        );
       }
+    }
+  }
+
+  // Initialize monitoring if there are active users
+  async initializeMonitoring() {
+    const activeUsers = await this.getActiveZenUsers();
+    if (activeUsers.length > 0 && !this.monitoringInterval) {
+      await this.startMarketMonitoring();
+    }
+  }
+
+  // Stop monitoring if no active users
+  async checkAndStopMonitoring() {
+    const activeUsers = await this.getActiveZenUsers();
+    if (activeUsers.length === 0 && this.monitoringInterval) {
+      clearInterval(this.monitoringInterval);
+      this.monitoringInterval = null;
+      console.log("⏹️ Market monitoring stopped - no active zen mode users");
     }
   }
 
@@ -110,74 +179,108 @@ class Engine {
   }
 
   // Helper methods - implement these with your actual logic
-  private async getMarketData() {
-    // TODO: Implement market data fetching
-    // This could be from DEX APIs, price feeds, etc.
-    console.log("📈 Fetching market data...");
-    return {
-      prices: { ETH: 2000, USDC: 1 },
-      volume: 1000000,
-      timestamp: Date.now(),
-    };
-  }
+  //   private async getMarketData(): Promise<MarketData> {
+  //     // TODO: Implement market data fetching
+  //     // This could be from DEX APIs, price feeds, etc.
+  //     console.log("📈 Fetching market data...");
+  //     return {
+  //       prices: { ETH: 2000, USDC: 1 },
+  //       volume: 1000000,
+  //       timestamp: Date.now(),
+  //     };
+  //   }
 
-  private async getUserBalance(userAddress: string) {
-    // TODO: Implement wallet balance checking
+  private async getUserBalance(
+    userAddress: `0x${string}`,
+    tokenAddress: `0x${string}`
+  ): Promise<UserBalance> {
     console.log("💰 Checking user balance for:", userAddress);
+    const balance = await publicClient.readContract({
+      address: tokenAddress,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [userAddress],
+    });
+
+    const decimals = await publicClient.readContract({
+      address: tokenAddress,
+      abi: erc20Abi,
+      functionName: "decimals",
+    });
+
     return {
-      ETH: "1.5",
-      USDC: "3000",
-      // Add other tokens as needed
+      tokenBalance: balance,
+      tokenDecimals: decimals,
     };
   }
 
   private async shouldCreateOrder(
-    userData: any,
-    marketData: any,
-    userBalance: any
+    zenUser: ZenModeUser,
+    marketData: MarketData,
+    userBalance: UserBalance
   ): Promise<boolean> {
     // TODO: Implement your logic for when to create orders
     // This could be based on price movements, time intervals, balance thresholds, etc.
     console.log("🤔 Evaluating if order should be created...");
 
     // Example logic - implement your own
-    const timeSinceLastOrder = userData.lastOrderCheck
-      ? Date.now() - new Date(userData.lastOrderCheck).getTime()
+    const timeSinceLastOrder = zenUser.lastOrderCheck
+      ? Date.now() - new Date(zenUser.lastOrderCheck).getTime()
       : Infinity;
 
     return timeSinceLastOrder > 300000; // 5 minutes example
   }
 
   private async calculateOptimalOrder(
-    userData: any,
-    marketData: any,
-    userBalance: any
-  ) {
-    // TODO: Implement order calculation logic
+    zenUser: ZenModeUser,
+    marketData: MarketData,
+    userBalance: UserBalance
+  ): Promise<CreateNewOrderResponse> {
     console.log("🧮 Calculating optimal order...");
 
-    return {
-      makerToken: "0x...ETH_ADDRESS", // Replace with actual token addresses
-      takerToken: "0x...USDC_ADDRESS",
-      amount: "0.1", // ETH amount
-      price: marketData.prices.ETH * 0.99, // 1% below market for example
-      data: {
-        strategy: "zen_mode",
-        calculatedAt: new Date().toISOString(),
-        marketPrice: marketData.prices.ETH,
-      },
-    };
+    if (!zenUser.preferences) {
+      throw new Error("User preferences not set");
+    }
+
+    // User can define define how much they want to make in terms of max amount
+    // @ts-ignore
+    const makingAmount = BigInt(zenUser.preferences.amount.toString());
+
+    // Need to charge the taker a 1BP fee ( No consideration of market prices for now)
+    const takingAmount = BigInt((makingAmount * 100n) / 99n);
+
+    const order = await createNewOrder({
+      engineWallet,
+      makerAddress: zenUser.userAddress as `0x${string}`,
+      // @ts-ignore
+      makerAssetAddress: zenUser.preferences.token as `0x${string}`,
+      // @ts-ignore
+      takerAssetAddress: zenUser.preferences.takerToken as `0x${string}`,
+      makingAmount: makingAmount,
+      takingAmount: takingAmount,
+      expiresIn: 86400n, // 1 day expiration
+    });
+
+    return order;
   }
 
-  private async createOrderForUser(userAddress: string, orderDetails: any) {
+  private async createOrderForUser(
+    userAddress: string,
+    orderData: CreateNewOrderResponse
+  ): Promise<Order> {
     console.log("📝 Creating order for user:", userAddress);
+
+    let orderDetails = orderData.order.build();
 
     try {
       const order = await prisma.order.create({
         data: {
           userAddress,
-          makerToken: orderDetails.makerToken,
-          data: orderDetails.data,
+          makerToken: orderDetails.makerAsset,
+          data: JSON.stringify({
+            order: orderDetails,
+            signature: orderData.signature,
+          }),
           completed: false,
         },
       });
@@ -190,13 +293,13 @@ class Engine {
     }
   }
 
-  private async shouldUpdateOrder(order: any): Promise<boolean> {
+  private async shouldUpdateOrder(order: Order): Promise<boolean> {
     // TODO: Implement logic to determine if order needs updating
     console.log("🔄 Checking if order should be updated:", order.id);
     return false; // Placeholder
   }
 
-  private async calculateOrderUpdate(order: any) {
+  private async calculateOrderUpdate(order: Order) {
     // TODO: Implement order update calculation
     console.log("🔄 Calculating order update for:", order.id);
     return {}; // Placeholder
@@ -220,56 +323,34 @@ class Engine {
     }
   }
 
-  // Deactivate zen mode for a user
+  // Deactivate zen mode for a user (updated to use database)
   async deactivateZenMode(userAddress: string) {
     console.log("🛑 Deactivating zen mode for user:", userAddress);
 
-    if (this.zenModeUsers.has(userAddress)) {
-      const userData = this.zenModeUsers.get(userAddress);
-      userData.isActive = false;
-      this.zenModeUsers.set(userAddress, userData);
-      console.log("✅ Zen mode deactivated for:", userAddress);
+    try {
+      // Update user in database
+      const zenUser = await prisma.zenModeUser.findUnique({
+        where: { userAddress },
+      });
+
+      if (zenUser) {
+        await prisma.zenModeUser.update({
+          where: { userAddress },
+          data: { isActive: false },
+        });
+        console.log("✅ Zen mode deactivated for:", userAddress);
+      } else {
+        console.log("⚠️ User not found in zen mode:", userAddress);
+      }
+
+      // Check if monitoring should stop
+      await this.checkAndStopMonitoring();
+
+      return { success: true, userAddress, zenModeActive: false };
+    } catch (error) {
+      console.error("❌ Failed to deactivate zen mode:", error);
+      throw error;
     }
-
-    // Stop monitoring if no active users
-    const hasActiveUsers = Array.from(this.zenModeUsers.values()).some(
-      (user) => user.isActive
-    );
-    if (!hasActiveUsers && this.monitoringInterval) {
-      clearInterval(this.monitoringInterval);
-      this.monitoringInterval = null;
-      console.log("⏹️ Market monitoring stopped - no active zen mode users");
-    }
-
-    return { success: true, userAddress, zenModeActive: false };
-  }
-
-  // Legacy methods for backward compatibility
-  async processData(data: any) {
-    console.log("🔧 Engine processing data:", data);
-
-    const processedResult = {
-      originalData: data,
-      processedAt: new Date().toISOString(),
-      status: "processed",
-      result: `Processed: ${JSON.stringify(data)}`,
-    };
-
-    console.log("✅ Processing complete:", processedResult);
-    return processedResult;
-  }
-
-  async batchProcess(items: any[]) {
-    console.log("📦 Batch processing", items.length, "items");
-
-    const results = [];
-    for (const item of items) {
-      const result = await this.processData(item);
-      results.push(result);
-    }
-
-    console.log("✅ Batch processing complete");
-    return results;
   }
 }
 
@@ -282,19 +363,6 @@ async function runEngine() {
   try {
     // Example 1: Process some data
     const sampleData = { message: "Hello from engine", timestamp: Date.now() };
-    await engine.processData(sampleData);
-
-    // Example 2: Auto-create a task (you'll need a valid user ID)
-    // Uncomment this when you have users in your database
-    // await engine.automateTask('your-user-id', 'Engine Generated Task', 'This task was created by the engine')
-
-    // Example 3: Batch processing
-    const batchData = [
-      { id: 1, name: "Item 1" },
-      { id: 2, name: "Item 2" },
-      { id: 3, name: "Item 3" },
-    ];
-    await engine.batchProcess(batchData);
   } catch (error) {
     console.error("❌ Engine error:", error);
   } finally {
