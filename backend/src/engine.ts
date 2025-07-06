@@ -64,6 +64,7 @@ class Engine {
   // Start monitoring (now uses database)
   async startMarketMonitoring() {
     console.log("👀 Starting market monitoring...");
+    await this.checkAndCreateOrders();
 
     this.monitoringInterval = setInterval(async () => {
       try {
@@ -251,19 +252,24 @@ class Engine {
     // Need to charge the taker a 1BP fee ( No consideration of market prices for now)
     const takingAmount = BigInt((makingAmount * 100n) / 99n);
 
-    const order = await createNewOrder({
-      engineWallet,
-      makerAddress: zenUser.userAddress as `0x${string}`,
-      // @ts-ignore
-      makerAssetAddress: zenUser.preferences.token as `0x${string}`,
-      // @ts-ignore
-      takerAssetAddress: zenUser.preferences.takerToken as `0x${string}`,
-      makingAmount: makingAmount,
-      takingAmount: takingAmount,
-      expiresIn: 86400n, // 1 day expiration
-    });
+    try {
+      const order = await createNewOrder({
+        engineWallet,
+        makerAddress: zenUser.userAddress as `0x${string}`,
+        // @ts-ignore
+        makerAssetAddress: zenUser.preferences.token as `0x${string}`,
+        // @ts-ignore
+        takerAssetAddress: zenUser.preferences.takerToken as `0x${string}`,
+        makingAmount: makingAmount,
+        takingAmount: takingAmount,
+        expiresIn: 86400n, // 1 day expiration
+      });
 
-    return order;
+      return order;
+    } catch (error) {
+      console.error("❌ Failed to create new order:", error);
+      throw error;
+    }
   }
 
   private async createOrderForUser(
@@ -363,13 +369,12 @@ async function runEngine() {
   const engine = new Engine();
 
   try {
+    await engine.startMarketMonitoring();
     // Example 1: Process some data
     const sampleData = { message: "Hello from engine", timestamp: Date.now() };
   } catch (error) {
     console.error("❌ Engine error:", error);
-  } finally {
-    await prisma.$disconnect();
-    console.log("👋 Engine finished");
+    await engine.checkAndStopMonitoring();
   }
 }
 

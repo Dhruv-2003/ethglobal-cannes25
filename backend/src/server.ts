@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { PrismaClient } from "@prisma/client";
 import type { Context } from "hono";
 import { Engine } from "./engine";
@@ -12,7 +13,22 @@ const app = new Hono();
 // Initialize Engine
 const engine = new Engine();
 
-// Middleware for JSON parsing (built into Hono)
+// CORS middleware to allow frontend requests
+app.use(
+  "*",
+  cors({
+    origin: [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:5173",
+      "http://localhost:8080",
+    ],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// Middleware for JSON parsing and logging
 app.use("*", async (c: Context, next) => {
   console.log(`${c.req.method} ${c.req.url}`);
   await next();
@@ -167,6 +183,7 @@ app.post("/zen-mode/activate", async (c: Context) => {
     const { userAddress, preferences } = await c.req.json();
 
     if (!userAddress || !preferences) {
+      console.error("Missing userAddress or preferences");
       return c.json({ error: "userAddress and preferences are required" }, 400);
     }
 
@@ -209,6 +226,7 @@ app.post("/zen-mode/activate", async (c: Context) => {
       201
     );
   } catch (error) {
+    console.error("Error activating zen mode:", error);
     return c.json({ error: "Failed to activate zen mode" }, 500);
   }
 });

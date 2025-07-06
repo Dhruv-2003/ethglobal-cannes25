@@ -14,6 +14,7 @@ import { WalletClient } from "viem";
 import { PrivateKeyAccount, privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { LIMIT_ORDER_PROTOCOL_ADDRESS } from "../constants";
+import { AxiosProviderConnector } from "@1inch/limit-order-sdk/axios";
 
 export interface CreateNewOrderParams {
   engineWallet: PrivateKeyAccount;
@@ -56,6 +57,16 @@ export const createNewOrder = async ({
     authKey: oneinchAuthKey,
     networkId: chainId,
     httpConnector: new FetchProviderConnector(),
+  });
+
+  console.log("Creating order with parameters:", {
+    makerAssetAddress,
+    takerAssetAddress,
+    makingAmount: makingAmount.toString(),
+    takingAmount: takingAmount.toString(),
+    makerAddress,
+    expiration: expiration.toString(),
+    chainId,
   });
 
   const order = await sdk.createOrder(

@@ -63,7 +63,15 @@ async function runDemo() {
     for (const order of openOrders) {
       console.log(`\n🔨 Processing order ${order.id}...`);
 
-      const orderFillResult = await fillOrder(order);
+      // TODO: NOT FILLING THE ORDER YET
+      //   const orderFillResult = await fillOrder(order);
+
+      const orderFillResult = {
+        success: true,
+        transactionHash:
+          "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        error: null,
+      };
 
       if (orderFillResult.success) {
         // Mark order as completed in database
