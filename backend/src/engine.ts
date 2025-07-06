@@ -242,6 +242,8 @@ class Engine {
       throw new Error("User preferences not set");
     }
 
+    // TODO: Optimize this logic for our use case
+
     // User can define define how much they want to make in terms of max amount
     // @ts-ignore
     const makingAmount = BigInt(zenUser.preferences.amount.toString());

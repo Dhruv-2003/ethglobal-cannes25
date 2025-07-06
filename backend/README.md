@@ -1,6 +1,6 @@
 # Cannes 25 Backend
 
-Simple TypeScript backend for hackathon with PostgreSQL and Prisma.
+TypeScript backend with Zen Mode automation for automated trading using Bun, Hono, Prisma, and PostgreSQL.
 
 ## Quick Setup
 
@@ -50,7 +50,6 @@ Server will start on http://localhost:3000
 ## API Endpoints
 
 ### Orders
-
 - `GET /orders` - Get all orders
 - `GET /orders/:id` - Get order by ID
 - `POST /orders` - Create new order
@@ -59,53 +58,89 @@ Server will start on http://localhost:3000
 - `GET /orders/user/:address` - Get orders by user address
 - `PATCH /orders/:id/complete` - Mark order as completed
 
-### Custom
-
-- `POST /process` - Custom order processing endpoint
+### Zen Mode (Automated Trading)
+- `POST /zen-mode/activate` - Activate zen mode for automated trading
+- `POST /zen-mode/deactivate` - Deactivate zen mode
+- `GET /zen-mode/users` - Get all active zen mode users
+- `GET /zen-mode/users/:address` - Get zen mode user by address
+- `PATCH /zen-mode/users/:address/preferences` - Update user preferences
 
 ## Project Structure
 
-- `src/server.ts` - Main server with all endpoints
-- `src/engine.ts` - Processing engine script
-- `src/demo.ts` - Demo script to test functionality
-- `prisma/schema.prisma` - Database schema
+- `src/server.ts` - Main server with REST API endpoints
+- `src/engine.ts` - Zen mode automation engine for order creation
+- `src/demo.ts` - Demo script for order taker (fills existing orders)
+- `prisma/schema.prisma` - Database schema with Order and ZenModeUser models
 
 ## Example Usage
 
-1. **Create an order:**
+### 1. Activate Zen Mode (Automated Trading)
 
 ```bash
-curl -X POST http://localhost:3000/orders \
+curl -X POST http://localhost:3000/zen-mode/activate \
   -H "Content-Type: application/json" \
-  -d '{"userAddress": "0x1234...abcd", "makerToken": "0xToken123", "data": {"amount": "100", "type": "swap"}}'
+  -d '{
+    "userAddress": "0x1234...abcd",
+    "preferences": {
+      "strategy": "dca",
+      "frequency": "daily",
+      "amount": "100",
+      "targetToken": "ETH",
+      "slippageTolerance": "1%"
+    }
+  }'
 ```
 
-2. **Get orders for a user:**
+### 2. Get Active Zen Mode Users
+
+```bash
+curl http://localhost:3000/zen-mode/users
+```
+
+### 3. Check Orders Created by Engine
 
 ```bash
 curl http://localhost:3000/orders/user/0x1234...abcd
 ```
 
-3. **Complete an order:**
-
-```bash
-curl -X PATCH http://localhost:3000/orders/ORDER_ID/complete
-```
-
-4. **Run demo script:**
+### 4. Run Demo Script (Order Taker)
 
 ```bash
 bun run demo
 ```
 
-4. **Run engine:**
+### 5. Deactivate Zen Mode
 
 ```bash
-bun run engine
+curl -X POST http://localhost:3000/zen-mode/deactivate \
+  -H "Content-Type: application/json" \
+  -d '{"userAddress": "0x1234...abcd"}'
 ```
 
 ## Database Schema
 
-- **Order**: id, userAddress, makerToken, data (JSON), completed, createdAt, updatedAt
+### Order Model
+- **id**: Unique identifier (CUID)
+- **userAddress**: Wallet address of the order creator
+- **makerToken**: Token being offered in the trade
+- **data**: JSON object with order details (amount, price, strategy, etc.)
+- **completed**: Boolean indicating if order is filled
+- **createdAt/updatedAt**: Timestamps
 
-Simple and ready for hackathon development! 🚀
+### ZenModeUser Model
+- **id**: Unique identifier (CUID)  
+- **userAddress**: Wallet address (unique)
+- **preferences**: JSON object with trading strategy and parameters
+- **isActive**: Boolean indicating if zen mode is currently active
+- **lastOrderCheck**: Timestamp of last engine check
+- **createdAt/updatedAt**: Timestamps
+
+## How It Works
+
+1. **User activates zen mode** with trading preferences via API
+2. **Engine monitors** active zen mode users and market conditions
+3. **Engine creates orders** automatically based on user preferences
+4. **Takers fill orders** using the demo script or custom implementation
+5. **Orders are marked as completed** when successfully filled on-chain
+
+Perfect for hackathon development with automated trading capabilities! 🚀
